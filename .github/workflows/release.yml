@@ -1,0 +1,73 @@
+name: "Release"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Checks
+    uses: ./.github/workflows/checks.yml
+    with:
+      # The pull request already ran the full matrix, one runner is enough here.
+      runners: '["ubuntu-latest"]'
+
+  semantic_release:
+    name: Generate Release
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Cocogitto release
+        id: release
+        uses: cocogitto/cocogitto-action@v4
+        with:
+          command: bump
+          args: --auto
+          git-user: "Intelligent Embedded Systems Lab @ UDE"
+          git-user-email: "no-reply.ies@uni-due.de"
+
+      # `cog bump --auto` exits successfully without a new tag when no commit
+      # requires a bump (docs, ci, build, ...), and the action then reports the
+      # previous tag. A bump leaves the new tag on HEAD, so only publish then.
+      - name: Check for a new release
+        id: bumped
+        run: |
+          version="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
+          if [ -n "$version" ]; then
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+          else
+            echo "No new version, skipping the release."
+          fi
+
+      - name: Generate Changelog
+        id: changelog
+        if: steps.bumped.outputs.version != ''
+        uses: cocogitto/cocogitto-action@v4
+        with:
+          command: changelog
+          args: --at ${{ steps.bumped.outputs.version }} --template full_hash
+
+      - name: Upload github release
+        if: steps.bumped.outputs.version != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          body: ${{ steps.changelog.outputs.stdout }}
+          tag_name: ${{ steps.bumped.outputs.version }}

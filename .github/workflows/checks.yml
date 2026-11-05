@@ -1,0 +1,44 @@
+name: "Checks"
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      runners:
+        description: "JSON array of runner labels to run the checks on"
+        type: string
+        default: '["ubuntu-latest", "macos-latest"]'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - "main"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.runners || '["ubuntu-latest", "macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v17
+        with:
+          name: devenv
+      - name: install devenv.sh
+        run: nix profile add nixpkgs#devenv
+
+      # Runs the test environment, which includes the check:* tasks
+      # (commit messages, lint, types, unit tests).
+      - name: run checks in the devenv test environment
+        run: devenv test

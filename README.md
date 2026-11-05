@@ -28,8 +28,11 @@ negative deltas and `inflate` returns an `int64` tensor. The delta bit width mus
 be an integer between 1 and 34, the most that 32 bit input can use.
 
 Reconstruction is exact when every delta fits into the chosen bit width.
-Otherwise it is lossy. With `consecutive`, the error accumulates along the
-sequence, because each reconstructed value builds on the previous one.
+Otherwise it is lossy. With `consecutive` and `clamp`, the encoder tracks the
+decoder's reconstruction, so an error does not accumulate: it is corrected as
+soon as the data moves back into the delta range. A jump larger than the delta
+range is still followed with a lag of `2^(w-1)` per step. `cut` is unaffected,
+because wrapping already preserves every value modulo `2^w`.
 
 ## Project structure
 
