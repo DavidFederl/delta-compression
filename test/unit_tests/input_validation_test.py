@@ -291,3 +291,46 @@ def test_built_compressors_are_picklable(kind, quantizer):
     restored_ref, restored_delta = restored.compress(data)
     assert torch.equal(ref, restored_ref)
     assert torch.equal(delta, restored_delta)
+
+
+@pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
+def test_inflate_with_value_range_recovers_cut_deltas(kind):
+    codec = build(kind, "cut", 4)
+    data = torch.tensor([10, 12, 25, 11, 20, 18], dtype=torch.int32)
+    ref, delta = codec.compress(data)
+    assert not torch.equal(codec.inflate(ref, delta), data.to(torch.int64))
+    rec = codec.inflate(ref, delta, value_range=(10, 25))
+    assert torch.equal(rec, data.to(torch.int64))
+    # A window that does not contain the data wraps values to the wrong place.
+    rec = codec.inflate(ref, delta, value_range=(8, 23))
+    assert rec[2].item() == 9
+
+
+@pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
+@given(
+    data=st.lists(st.integers(min_value=-40, max_value=40), min_size=1, max_size=32),
+    width=st.integers(min_value=3, max_value=8),
+)
+def test_inflate_with_value_range_is_exact_when_range_fits(kind, data, width):
+    codec = build(kind, "cut", width)
+    tensor = torch.tensor(data, dtype=torch.int32)
+    low, high = min(data), max(data)
+    if high - low >= 2**width:
+        return
+    ref, delta = codec.compress(tensor)
+    rec = codec.inflate(ref, delta, value_range=(low, high))
+    assert torch.equal(rec, tensor.to(torch.int64))
+
+
+@pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
+def test_inflate_rejects_ambiguous_value_range(kind):
+    codec = build(kind, "cut", 4)
+    ref, delta = codec.compress(torch.tensor([1, 2, 3], dtype=torch.int32))
+    with pytest.raises(ValueError, match="cannot be decoded unambiguously"):
+        codec.inflate(ref, delta, value_range=(0, 16))
+    with pytest.raises(ValueError, match="empty"):
+        codec.inflate(ref, delta, value_range=(5, 4))
+    with pytest.raises(TypeError, match="pair"):
+        codec.inflate(ref, delta, value_range=(1,))
+    with pytest.raises(TypeError, match="ints"):
+        codec.inflate(ref, delta, value_range=(0.0, 3.0))

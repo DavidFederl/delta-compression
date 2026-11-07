@@ -29,8 +29,9 @@ def cut_delta(delta: Tensor, delta_width: int) -> Tensor:
         result:     7   -8    0    7   -8   -7    4
 
     For 9: (9 + 8) % 16 - 8 = 1 - 8 = -7. For -9: (-9 + 8) % 16 - 8 = 15 - 8 = 7.
-    The wrapped delta is congruent to the original one modulo 16, so it is only
-    lossless if the decoder also wraps, which `FixedReferenceDelta.inflate` does not.
+    The wrapped delta is congruent to the original one modulo 16, so decoding is
+    only lossless if the decoder wraps as well: pass the bounds of the original input
+    as `value_range` to `DeltaCompression.inflate`.
     """
     return (delta + 2 ** (delta_width - 1)) % (2**delta_width) - 2 ** (delta_width - 1)
 

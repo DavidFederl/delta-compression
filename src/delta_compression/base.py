@@ -132,6 +132,25 @@ class DeltaCompression(ABC):
         compressed_delta = self._compress_delta(delta)
         return reference_value, compressed_delta
 
+    def _validate_value_range(self, value_range: tuple[int, int]) -> tuple[int, int]:
+        try:
+            low, high = value_range
+        except (TypeError, ValueError):
+            raise TypeError("value range must be a pair (low, high)") from None
+        for bound in (low, high):
+            if isinstance(bound, bool) or not isinstance(bound, int):
+                raise TypeError(
+                    f"value range bounds must be ints, got {type(bound).__name__}"
+                )
+        if low > high:
+            raise ValueError(f"value range is empty: low {low} > high {high}")
+        if high - low >= 2**self.delta_width:
+            raise ValueError(
+                f"value range [{low}, {high}] spans more than "
+                f"2**{self.delta_width} values and cannot be decoded unambiguously"
+            )
+        return low, high
+
     @abstractmethod
     def _validate_inflate_shapes(self, reference_value: Tensor, delta: Tensor) -> None:
         """Checks that the reference value and the delta fit together.
@@ -154,20 +173,33 @@ class DeltaCompression(ABC):
         """
         ...
 
-    def inflate(self, reference_value: Tensor, delta: Tensor) -> Tensor:
+    def inflate(
+        self,
+        reference_value: Tensor,
+        delta: Tensor,
+        value_range: tuple[int, int] | None = None,
+    ) -> Tensor:
         """Decompresses the data by reconstructing the original input from the reference value and the compressed delta.
 
         Args:
             reference_value (Tensor): The reference value used for decompression.
             delta (Tensor): The compressed delta to be decompressed.
+            value_range (tuple[int, int] | None): Inclusive `(low, high)` bounds of the
+                original input. Needed to decode deltas that were wrapped by
+                `cut_delta`: a wrapped delta only fixes a value modulo
+                2**delta_width, so the reconstruction is wrapped into the window of
+                that size starting at `low`. The result is exact if
+                `high - low < 2**delta_width`. Leave it unset for clamped deltas.
 
         Returns:
             Tensor: The reconstructed original input data as an int64 tensor.
 
         Raises:
             TypeError: If the reference value or the delta is not an integer tensor.
+            TypeError: If the value range is not a pair of integers.
             ValueError: If the shapes of the reference value and the delta do not fit
-                together.
+                together, or if the value range is empty or spans more than
+                2**delta_width values.
         """
         _validate_integer(reference_value, "reference_value", INFLATE_DTYPES)
         _validate_integer(delta, "delta", INFLATE_DTYPES)
@@ -175,4 +207,8 @@ class DeltaCompression(ABC):
         original_input = self._reverse_delta(
             reference_value.to(torch.int64), delta.to(torch.int64)
         )
+        if value_range is not None:
+            low, high = self._validate_value_range(value_range)
+            modulus = 2**self.delta_width
+            original_input = (original_input - low) % modulus + low
         return original_input
