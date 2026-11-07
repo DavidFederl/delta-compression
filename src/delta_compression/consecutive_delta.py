@@ -5,6 +5,10 @@ from torch import Tensor, cat, empty_like
 from .base import DeltaCompression
 
 
+def _first_row(input: Tensor) -> Tensor:
+    return input[0]
+
+
 class ConsecutiveDelta(DeltaCompression):
     def __init__(
         self,
@@ -12,7 +16,7 @@ class ConsecutiveDelta(DeltaCompression):
         compression_fn: Callable[[Tensor, int], Tensor],
     ):
         super().__init__(delta_width)
-        self.reference_value_fn = lambda input: input[0]
+        self.reference_value_fn = _first_row
         self.compression_fn = compression_fn
 
     def _calculate_reference_value(self, input: Tensor) -> Tensor:

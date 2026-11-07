@@ -8,6 +8,33 @@ from .consecutive_delta import ConsecutiveDelta
 from .fixed_reference_delta import FixedReferenceDelta
 
 
+def clamp_delta(delta: Tensor, delta_width: int) -> Tensor:
+    """Saturates the delta to the signed range of `delta_width` bits."""
+    return delta.clamp(-(2 ** (delta_width - 1)), 2 ** (delta_width - 1) - 1)
+
+
+def cut_delta(delta: Tensor, delta_width: int) -> Tensor:
+    """Wraps the delta into the signed range of `delta_width` bits.
+
+    Computes the delta modulo 2**delta_width and maps it into
+    [-2**(delta_width - 1), 2**(delta_width - 1) - 1]. In-range deltas are
+    unchanged, out-of-range deltas wrap around instead of saturating like
+    `clamp_delta`. The offset of 2**(delta_width - 1) shifts the signed range to
+    [0, 2**delta_width) so that the modulo (which is non-negative in torch for a
+    positive modulus) wraps correctly, and is subtracted again afterwards.
+
+    Example with `delta_width=4`, which covers [-8, 7] (modulus 16):
+
+        delta:     -9   -8    0    7    8    9   20
+        result:     7   -8    0    7   -8   -7    4
+
+    For 9: (9 + 8) % 16 - 8 = 1 - 8 = -7. For -9: (-9 + 8) % 16 - 8 = 15 - 8 = 7.
+    The wrapped delta is congruent to the original one modulo 16, so it is only
+    lossless if the decoder also wraps, which `FixedReferenceDelta.inflate` does not.
+    """
+    return (delta + 2 ** (delta_width - 1)) % (2**delta_width) - 2 ** (delta_width - 1)
+
+
 class DeltaCompressionBuilder:
     delta_compression: partial[DeltaCompression]
     delta_width: int
@@ -30,15 +57,11 @@ class DeltaCompressionBuilder:
         return self
 
     def clamp(self) -> Self:
-        self.compression_fn = lambda delta, delta_width: delta.clamp(
-            -(2 ** (delta_width - 1)), 2 ** (delta_width - 1) - 1
-        )
+        self.compression_fn = clamp_delta
         return self
 
     def cut(self) -> Self:
-        self.compression_fn = lambda delta, delta_width: (
-            (delta + 2 ** (delta_width - 1)) % (2**delta_width) - 2 ** (delta_width - 1)
-        )
+        self.compression_fn = cut_delta
         return self
 
     def build_delta(self) -> DeltaCompression:

@@ -1,3 +1,5 @@
+import pickle
+
 import pytest
 import torch
 from hypothesis import given
@@ -277,3 +279,15 @@ def test_inflate_rejects_non_broadcastable_reference_for_fixed_reference():
         codec.inflate(
             torch.zeros(2, 4, dtype=torch.int64), torch.zeros(4, dtype=torch.int64)
         )
+
+
+@pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
+@pytest.mark.parametrize("quantizer", ["clamp", "cut"])
+def test_built_compressors_are_picklable(kind, quantizer):
+    codec = build(kind, quantizer, 4)
+    data = torch.tensor([0, 5, -9, 100, 3], dtype=torch.int32)
+    restored = pickle.loads(pickle.dumps(codec))
+    ref, delta = codec.compress(data)
+    restored_ref, restored_delta = restored.compress(data)
+    assert torch.equal(ref, restored_ref)
+    assert torch.equal(delta, restored_delta)
