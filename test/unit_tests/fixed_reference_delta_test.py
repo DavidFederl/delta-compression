@@ -99,7 +99,8 @@ def test_minimum_reference_gives_nonnegative_deltas(data, width):
 def test_roundtrip_lossless(data, width, reference_fn):
     codec = make(width, identity, reference_fn)
     ref, delta = codec.compress(data)
-    assert torch.equal(codec.inflate(ref, delta), data)
+    rec = codec.inflate(ref, delta, check_delta_range=False)
+    assert torch.equal(rec, data)
 
 
 @given(data=matrices(), width=widths, reference_fn=reference_fns)
@@ -107,7 +108,8 @@ def test_roundtrip_lossless_multidim(data, width, reference_fn):
     codec = make(width, identity, reference_fn)
     ref, delta = codec.compress(data)
     assert delta.shape == data.shape
-    assert torch.equal(codec.inflate(ref, delta), data)
+    rec = codec.inflate(ref, delta, check_delta_range=False)
+    assert torch.equal(rec, data)
 
 
 @given(data=sequences(), width=widths)

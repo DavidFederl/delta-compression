@@ -71,7 +71,8 @@ def test_delta_is_neighbour_difference(data, width):
 def test_roundtrip_lossless(data, width):
     codec = ConsecutiveDelta(delta_width=width, compression_fn=identity)
     ref, delta = codec.compress(data)
-    assert torch.equal(codec.inflate(ref, delta), data)
+    rec = codec.inflate(ref, delta, check_delta_range=False)
+    assert torch.equal(rec, data)
 
 
 @given(data=matrices(), width=widths)
@@ -79,7 +80,8 @@ def test_roundtrip_lossless_multidim(data, width):
     codec = ConsecutiveDelta(delta_width=width, compression_fn=identity)
     ref, delta = codec.compress(data)
     assert delta.shape == (data.shape[0] - 1, data.shape[1])
-    assert torch.equal(codec.inflate(ref, delta), data)
+    rec = codec.inflate(ref, delta, check_delta_range=False)
+    assert torch.equal(rec, data)
 
 
 @given(data=sequences(), width=widths)

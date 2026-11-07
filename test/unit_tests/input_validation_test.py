@@ -252,7 +252,7 @@ def test_max_delta_width_matches_32_bit_input():
 @pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
 @pytest.mark.parametrize("dtype", [torch.int8, torch.int16, torch.uint8])
 def test_inflate_widens_small_dtypes_to_int64(kind, dtype):
-    codec = build(kind, "clamp", 8)
+    codec = build(kind, "clamp", 20)
     high = torch.iinfo(dtype).max
     ref = torch.tensor(high, dtype=dtype)
     delta = torch.tensor([high], dtype=dtype)
@@ -334,3 +334,35 @@ def test_inflate_rejects_ambiguous_value_range(kind):
         codec.inflate(ref, delta, value_range=(1,))
     with pytest.raises(TypeError, match="ints"):
         codec.inflate(ref, delta, value_range=(0.0, 3.0))
+
+
+@pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
+@pytest.mark.parametrize("bad", [8, -9, 1000])
+def test_inflate_rejects_delta_outside_delta_width(kind, bad):
+    codec = build(kind, "clamp", 4)
+    ref = torch.tensor(0, dtype=torch.int64)
+    with pytest.raises(ValueError, match="must fit in 4 bits"):
+        codec.inflate(ref, torch.tensor([0, bad]))
+
+
+@pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
+def test_inflate_accepts_delta_at_delta_width_bounds(kind):
+    codec = build(kind, "clamp", 4)
+    ref = torch.tensor(0, dtype=torch.int64)
+    codec.inflate(ref, torch.tensor([-8, 7]))
+
+
+@pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
+def test_inflate_can_skip_delta_range_check(kind):
+    codec = build(kind, "clamp", 4)
+    ref = torch.tensor(0, dtype=torch.int64)
+    delta = torch.tensor([1000])
+    rec = codec.inflate(ref, delta, check_delta_range=False)
+    assert rec[-1].item() == 1000
+
+
+@pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
+def test_inflate_accepts_empty_delta(kind):
+    codec = build(kind, "clamp", 4)
+    ref = torch.tensor(5, dtype=torch.int64)
+    codec.inflate(ref, torch.empty(0, dtype=torch.int64))

@@ -151,6 +151,18 @@ class DeltaCompression(ABC):
             )
         return low, high
 
+    def _validate_delta_range(self, delta: Tensor) -> None:
+        if delta.numel() == 0:
+            return
+        low = -(2 ** (self.delta_width - 1))
+        high = 2 ** (self.delta_width - 1) - 1
+        if delta.min().item() < low or delta.max().item() > high:
+            raise ValueError(
+                f"delta values must fit in {self.delta_width} bits "
+                f"([{low}, {high}]), got values in "
+                f"[{delta.min().item()}, {delta.max().item()}]"
+            )
+
     @abstractmethod
     def _validate_inflate_shapes(self, reference_value: Tensor, delta: Tensor) -> None:
         """Checks that the reference value and the delta fit together.
@@ -178,6 +190,7 @@ class DeltaCompression(ABC):
         reference_value: Tensor,
         delta: Tensor,
         value_range: tuple[int, int] | None = None,
+        check_delta_range: bool = True,
     ) -> Tensor:
         """Decompresses the data by reconstructing the original input from the reference value and the compressed delta.
 
@@ -190,6 +203,11 @@ class DeltaCompression(ABC):
                 2**delta_width, so the reconstruction is wrapped into the window of
                 that size starting at `low`. The result is exact if
                 `high - low < 2**delta_width`. Leave it unset for clamped deltas.
+            check_delta_range (bool): Whether to check that all delta values fit in
+                `delta_width` bits. Deltas quantized by `clamp_delta` or `cut_delta`
+                always do, so the check only catches corrupt or foreign data. It costs
+                one pass over the delta. Set this to `False` to skip it, for example
+                for a custom compression function that does not respect the width.
 
         Returns:
             Tensor: The reconstructed original input data as an int64 tensor.
@@ -199,11 +217,14 @@ class DeltaCompression(ABC):
             TypeError: If the value range is not a pair of integers.
             ValueError: If the shapes of the reference value and the delta do not fit
                 together, or if the value range is empty or spans more than
-                2**delta_width values.
+                2**delta_width values, or if `check_delta_range` is set and a delta
+                value does not fit in `delta_width` bits.
         """
         _validate_integer(reference_value, "reference_value", INFLATE_DTYPES)
         _validate_integer(delta, "delta", INFLATE_DTYPES)
         self._validate_inflate_shapes(reference_value, delta)
+        if check_delta_range:
+            self._validate_delta_range(delta)
         original_input = self._reverse_delta(
             reference_value.to(torch.int64), delta.to(torch.int64)
         )
