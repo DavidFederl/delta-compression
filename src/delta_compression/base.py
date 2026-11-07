@@ -160,5 +160,7 @@ class DeltaCompression(ABC):
         """
         _validate_integer(reference_value, "reference_value", INFLATE_DTYPES)
         _validate_integer(delta, "delta", INFLATE_DTYPES)
-        original_input = self._reverse_delta(reference_value, delta)
+        original_input = self._reverse_delta(
+            reference_value.to(torch.int64), delta.to(torch.int64)
+        )
         return original_input

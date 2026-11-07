@@ -245,3 +245,15 @@ def test_32_bit_width_is_not_always_lossless(kind):
 
 def test_max_delta_width_matches_32_bit_input():
     assert MAX_DELTA_WIDTH == 34
+
+
+@pytest.mark.parametrize("kind", ["consecutive", "fixed_reference"])
+@pytest.mark.parametrize("dtype", [torch.int8, torch.int16, torch.uint8])
+def test_inflate_widens_small_dtypes_to_int64(kind, dtype):
+    codec = build(kind, "clamp", 8)
+    high = torch.iinfo(dtype).max
+    ref = torch.tensor(high, dtype=dtype)
+    delta = torch.tensor([high], dtype=dtype)
+    rec = codec.inflate(ref, delta)
+    assert rec.dtype == torch.int64
+    assert rec[-1].item() == 2 * high
