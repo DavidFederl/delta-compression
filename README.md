@@ -21,6 +21,9 @@ Two quantizers limit each delta to `delta_bit_width` bits (signed):
 | `clamp`   | Saturates deltas to `[-2^(w-1), 2^(w-1) - 1]`               |
 | `cut`     | Wraps deltas into the same range (keeps the low `w` bits)   |
 
+A wrapped delta fixes a value only modulo `2^w`. To decode it, pass the bounds of
+the original data to `inflate` (see [Decoding wrapped deltas](#decoding-wrapped-deltas)).
+
 Input must be an integer tensor (`int8` to `int32`, `uint8` to `uint32`) with at
 least one element. Floats, `bool`, `int64`, `uint64` and complex tensors raise a
 `TypeError`. Inputs are widened to `int64`, so unsigned types produce correct
@@ -31,8 +34,9 @@ Reconstruction is exact when every delta fits into the chosen bit width.
 Otherwise it is lossy. With `consecutive` and `clamp`, the encoder tracks the
 decoder's reconstruction, so an error does not accumulate: it is corrected as
 soon as the data moves back into the delta range. A jump larger than the delta
-range is still followed with a lag of `2^(w-1)` per step. `cut` is unaffected,
-because wrapping already preserves every value modulo `2^w`.
+range is still followed with a lag of `2^(w-1)` per step. `cut` keeps every value
+modulo `2^w`, but `inflate` can only pick the right one if it knows the range of
+the original data.
 
 ## Project structure
 
@@ -87,6 +91,35 @@ codec = (
 `build_delta()` raises a `ValueError` if the delta type, the bit width or the
 quantizer has not been set.
 
+### Decoding wrapped deltas
+
+Pass the inclusive `(low, high)` bounds of the original data as `value_range`.
+`inflate` then wraps the reconstruction into the window of `2^w` values that
+starts at `low`. The result is exact when `high - low < 2^w`. This example uses
+the `fixed_reference` codec with `cut` from above:
+
+```python
+data = torch.tensor([10, 12, 25, 11, 20, 18], dtype=torch.int32)
+reference, deltas = codec.compress(data)
+
+codec.inflate(reference, deltas)                          # wrong where deltas wrapped
+codec.inflate(reference, deltas, value_range=(10, 25))    # equals data
+```
+
+A range that is empty, not a pair of integers, or spans `2^w` values or more
+cannot be decoded unambiguously and raises an error. Do not pass `value_range`
+for `clamp`.
+
+### Validation in `inflate`
+
+- The shapes must fit together: for `consecutive` the delta has shape
+  `(n - 1, *reference.shape)`, for `fixed_reference` the reference must broadcast
+  to the delta. Otherwise a `ValueError` names both shapes.
+- Every delta must fit into `delta_bit_width` bits, otherwise a `ValueError` is
+  raised. This catches corrupt data and costs one pass over the delta. Pass
+  `check_delta_range=False` to skip it, for example for a custom quantizer that
+  does not respect the width.
+
 ## Development
 
 Requirements: [uv](https://docs.astral.sh/uv/), Python 3.12 or newer. A
@@ -113,7 +146,12 @@ uv run ty check src/     # type check
 - Before pushing, make sure `ruff check`, `ruff format --check`, `ty check` and
   `pytest` all pass.
 - Keep new delta schemes as subclasses of `DeltaCompression` and expose them
-  through `DeltaCompressionBuilder`.
+  through `DeltaCompressionBuilder`. A scheme implements the abstract methods,
+  including `_validate_inflate_shapes`.
+- Use module-level functions, not lambdas, for reference and quantizer functions
+  stored on a compressor, so that compressors stay picklable.
+- The checks run only for pull requests that target `main`. A stacked pull
+  request, whose base is another branch, gets no checks until it is retargeted.
 
 ## License
 
