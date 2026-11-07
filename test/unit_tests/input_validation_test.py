@@ -366,3 +366,14 @@ def test_inflate_accepts_empty_delta(kind):
     codec = build(kind, "clamp", 4)
     ref = torch.tensor(5, dtype=torch.int64)
     codec.inflate(ref, torch.empty(0, dtype=torch.int64))
+
+
+def test_returned_reference_does_not_alias_reference_function_result():
+    stored = torch.tensor(3, dtype=torch.int64)
+    builder = DeltaCompressionBuilder().fixed_reference(lambda data: stored)
+    codec = builder.delta_bit_width(8).clamp().build_delta()
+    data = torch.tensor([3, 4, 5], dtype=torch.int32)
+    ref, delta = codec.compress(data)
+    stored.add_(100)
+    assert ref.item() == 3
+    assert torch.equal(codec.inflate(ref, delta), data.to(torch.int64))

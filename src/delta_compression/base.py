@@ -64,7 +64,7 @@ def _validate_reference(reference_value: Tensor, input: Tensor) -> Tensor:
             f"reference value of shape {tuple(reference_value.shape)} "
             f"does not broadcast to input of shape {tuple(input.shape)}"
         )
-    return reference_value.to(torch.int64)
+    return reference_value.to(torch.int64, copy=True)
 
 
 class DeltaCompression(ABC):
