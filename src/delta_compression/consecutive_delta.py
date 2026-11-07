@@ -38,6 +38,14 @@ class ConsecutiveDelta(DeltaCompression):
         # Already quantized in _calculate_delta, which has to do it inside the loop.
         return delta
 
+    def _validate_inflate_shapes(self, reference_value: Tensor, delta: Tensor) -> None:
+        if delta.ndim == 0 or delta.shape[1:] != reference_value.shape:
+            raise ValueError(
+                f"delta of shape {tuple(delta.shape)} does not match reference "
+                f"value of shape {tuple(reference_value.shape)}: expected a delta "
+                f"of shape (n - 1, *{tuple(reference_value.shape)})"
+            )
+
     def _reverse_delta(self, reference_value: Tensor, delta: Tensor) -> Tensor:
         return cat(
             [reference_value.unsqueeze(0), reference_value + delta.cumsum(dim=0)]

@@ -257,3 +257,23 @@ def test_inflate_widens_small_dtypes_to_int64(kind, dtype):
     rec = codec.inflate(ref, delta)
     assert rec.dtype == torch.int64
     assert rec[-1].item() == 2 * high
+
+
+def test_inflate_rejects_mismatched_shapes_for_consecutive():
+    codec = build("consecutive", "clamp", 8)
+    ref = torch.zeros(3, dtype=torch.int64)
+    with pytest.raises(ValueError, match="does not match reference value"):
+        codec.inflate(ref, torch.zeros(4, 2, dtype=torch.int64))
+    with pytest.raises(ValueError, match="does not match reference value"):
+        codec.inflate(ref, torch.tensor(1))
+
+
+def test_inflate_rejects_non_broadcastable_reference_for_fixed_reference():
+    codec = build("fixed_reference", "clamp", 8)
+    ref = torch.zeros(3, dtype=torch.int64)
+    with pytest.raises(ValueError, match="does not broadcast to delta"):
+        codec.inflate(ref, torch.zeros(4, dtype=torch.int64))
+    with pytest.raises(ValueError, match="does not broadcast to delta"):
+        codec.inflate(
+            torch.zeros(2, 4, dtype=torch.int64), torch.zeros(4, dtype=torch.int64)
+        )

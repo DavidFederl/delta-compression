@@ -133,6 +133,15 @@ class DeltaCompression(ABC):
         return reference_value, compressed_delta
 
     @abstractmethod
+    def _validate_inflate_shapes(self, reference_value: Tensor, delta: Tensor) -> None:
+        """Checks that the reference value and the delta fit together.
+
+        Raises:
+            ValueError: If the shapes are incompatible.
+        """
+        ...
+
+    @abstractmethod
     def _reverse_delta(self, reference_value: Tensor, delta: Tensor) -> Tensor:
         """Reconstructs the original input data from the reference value and the decompressed delta.
 
@@ -157,9 +166,12 @@ class DeltaCompression(ABC):
 
         Raises:
             TypeError: If the reference value or the delta is not an integer tensor.
+            ValueError: If the shapes of the reference value and the delta do not fit
+                together.
         """
         _validate_integer(reference_value, "reference_value", INFLATE_DTYPES)
         _validate_integer(delta, "delta", INFLATE_DTYPES)
+        self._validate_inflate_shapes(reference_value, delta)
         original_input = self._reverse_delta(
             reference_value.to(torch.int64), delta.to(torch.int64)
         )
