@@ -1,3 +1,4 @@
+import pytest
 import torch
 from hypothesis import given
 from hypothesis import strategies as st
@@ -50,6 +51,27 @@ def test_delta_example():
     ref, delta = codec.compress(data)
     assert ref == 5
     assert torch.equal(delta, torch.tensor([2, -3, 0, 5]))
+
+
+@pytest.mark.parametrize("quantizer", [identity, clamp, cut])
+def test_single_element_has_empty_delta(quantizer):
+    codec = ConsecutiveDelta(delta_width=8, compression_fn=quantizer)
+    data = torch.tensor([42], dtype=torch.int32)
+    ref, delta = codec.compress(data)
+    assert ref == 42
+    assert delta.shape == (0,)
+    assert delta.dtype == torch.int64
+    assert torch.equal(codec.inflate(ref, delta), data.to(torch.int64))
+
+
+@pytest.mark.parametrize("quantizer", [identity, clamp, cut])
+def test_single_row_has_empty_delta(quantizer):
+    codec = ConsecutiveDelta(delta_width=8, compression_fn=quantizer)
+    data = torch.tensor([[1, -2, 3]], dtype=torch.int32)
+    ref, delta = codec.compress(data)
+    assert torch.equal(ref, torch.tensor([1, -2, 3]))
+    assert delta.shape == (0, 3)
+    assert torch.equal(codec.inflate(ref, delta), data.to(torch.int64))
 
 
 @given(data=sequences(), width=widths)
